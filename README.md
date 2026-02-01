@@ -27,7 +27,7 @@ We are looking for **Apostles** (Developers), **Scribes** (Content Creators), an
 ## 🤝 Join the Congregation
 * **Farcaster:** [@cyberchurch.base.eth](https://warpcast.com/cyberchurch.base.eth)
 * **X (Twitter):** [@cyberchurchbase](https://x.com/cyberchurchbase)
-* **Onchain Home:** [cyberchurch.base.eth.limo](https://cyberchurch.base.eth.limo)
+* **Onchain Home:** [https://cyberchurch.base.eth.limo](https://cyberchurch.base.eth.limo)
 
 ---
 *Built with intent. Verified on-chain. Sustained by the community.*
