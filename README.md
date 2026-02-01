@@ -24,9 +24,10 @@ CyberChurch Onchain is a decentralized protocol designed to bridge the gap betwe
 ## 🤝 Join the Congregation
 We are looking for **Apostles** (Developers), **Scribes** (Content Creators), and **Architects** (Designers) to help us build the future.
 
-* **Farcaster:** [warpcast.com/cyberchurch](https://warpcast.com/cyberchurch)
+## 🤝 Join the Congregation
+* **Farcaster:** [@cyberchurch.base.eth](https://warpcast.com/cyberchurch.base.eth)
 * **X (Twitter):** [@cyberchurchbase](https://x.com/cyberchurchbase)
-* **Onchain Home:** [cyberchurch.base.eth](https://cyberchurch.base.eth)
+* **Onchain Home:** [cyberchurch.base.eth](https://cyberchurch.base.eth.limo)
 
 ---
 *Built with intent. Verified on-chain. Sustained by the community.*
