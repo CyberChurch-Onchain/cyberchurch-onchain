@@ -1,0 +1,17 @@
+steps:
+  # Step 1: Log the start of the build environment
+  - name: 'gcr.io/cloud-builders/git'
+    args: ['version']
+
+  # Step 2: Run your automated build step or asset compilation
+  # (We will swap this runner image out depending on your preferred Unity version/license parameters)
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Starting Unity build pipeline for CyberChurch..."
+        # Add your specific Unity compilation paths or deployment triggers here
+
+options:
+  logging: CLOUD_LOGGING_ONLY
