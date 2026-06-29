@@ -19,7 +19,7 @@ steps:
     args:
       [
         'deploy',
-        '--project=bold-ally-485107-b8',
+        '--project=cyberchurchonchain',
         '--only=hosting'
       ]
 
