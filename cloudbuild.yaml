@@ -13,15 +13,5 @@ steps:
         echo "Starting Unity build pipeline for CyberChurch..."
         # Add your specific Unity compilation paths or deployment triggers here
 
-  # Step 3: Deploy Unity WebGL static files to Firebase Hosting
-  - name: 'us-docker.pkg.dev/firebase-cli/us/firebase'
-    id: 'Deploy to Firebase Hosting'
-    args:
-      [
-        'deploy',
-        '--project=bold-ally-485107-b8',
-        '--only=hosting'
-      ]
-
 options:
   logging: CLOUD_LOGGING_ONLY
