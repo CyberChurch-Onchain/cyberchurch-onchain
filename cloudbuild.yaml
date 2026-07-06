@@ -15,7 +15,7 @@ steps:
 
   # Step 3: Deploy WebGL build artifacts to Firebase Hosting
   - name: 'us-docker.pkg.dev/firebase-cli/us/firebase'
-    args: ['deploy', '--project=cyberchurchonchain', '--only=hosting']
+    args: ['deploy', '--project=bold-ally-485107-b8', '--only=hosting']
 
 
 options:
