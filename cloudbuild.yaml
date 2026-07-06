@@ -13,5 +13,10 @@ steps:
         echo "Starting Unity build pipeline for CyberChurch..."
         # Add your specific Unity compilation paths or deployment triggers here
 
+  # Step 3: Deploy WebGL build artifacts to Firebase Hosting
+  - name: 'us-docker.pkg.dev/firebase-cli/us/firebase'
+    args: ['deploy', '--project=cyberchurchonchain', '--only=hosting']
+
+
 options:
   logging: CLOUD_LOGGING_ONLY
