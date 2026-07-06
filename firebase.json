@@ -1,10 +1,28 @@
 {
   "hosting": {
-    "public": "Build",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
+    "public": "public",
+    "headers": [
+      {
+        "source": "**/*.js.br",
+        "headers": [
+          { "key": "Content-Encoding", "value": "br" },
+          { "key": "Content-Type", "value": "application/javascript" }
+        ]
+      },
+      {
+        "source": "**/*.wasm.br",
+        "headers": [
+          { "key": "Content-Encoding", "value": "br" },
+          { "key": "Content-Type", "value": "application/wasm" }
+        ]
+      },
+      {
+        "source": "**/*.data.br",
+        "headers": [
+          { "key": "Content-Encoding", "value": "br" },
+          { "key": "Content-Type", "value": "application/octet-stream" }
+        ]
+      }
     ]
   }
 }
