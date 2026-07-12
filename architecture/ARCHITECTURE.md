@@ -5,17 +5,18 @@
 ```mermaid
 erDiagram
     User {
-        string id PK
+        string userId PK
         string walletAddress
         string email
         string displayName
+        string currentAgentId
         string status
         datetime createdAt
         datetime updatedAt
     }
 
     Session {
-        string id PK
+        string sessionId PK
         string userId FK
         string currentAgentId
         string status
@@ -27,34 +28,34 @@ erDiagram
     %% Relationships
     User ||--o{ Session : "has many sessions"}
 ```
-## Data Pipeline – Users & Sessions (Source → API → Firestore)
 
-### 1. Comes out of (Source: Unity / Web3)
+## Pipeline Governance – Source → API → Firestore
 
-- Unity WebGL client and Web3 dashboard send:
-  - Authenticated user context (userId, or ID token / session token).
-  - Web3 wallet data (walletAddress) on sign-in.
-  - Session-related data (sessionId, currentAgentId, userMessage) during conversations.
-- No anonymous, unauthenticated writes are allowed to users or sessions.
+### Tier 1 – Source (Unity / Web3)
 
-### 2. Goes into (Processing: API / Routing Layer)
+- Unity 3D WebGL frames and Web3 dashboard act only as interface layers.
+- Frontend never writes directly to Firestore.
+- All stateful actions are converted into standardized JSON requests to the API, including:
+  - `userId` (from authenticated context),
+  - `sessionId` (if an active session exists),
+  - `currentAgentId`,
+  - `userMessage`.
 
-- API gateway validates:
-  - Authentication (token valid, user active).
-  - Basic schema of every request body (required fields present, types correct).
-- Routing logic enforces:
-  - `currentAgentId` must be one of: `peacemaker`, `integration_model`, `christian_psychology`, `biblical_counseling`.
-  - `sessionId` must belong to the authenticated `userId` before reading/writing.
-- No direct client writes to Firestore; all writes go through validated API endpoints.
+### Tier 2 – Stateless Middleware API
 
-### 3. Goes out of (Output: Firestore)
+- Acts as the **exclusive write gatekeeper** to Firestore.
+- For every state-changing request, the API must:
+  - Validate the caller's authentication token.
+  - Verify that the `userId` in the request matches the authenticated user.
+  - Verify that any `sessionId` belongs to that `userId` before modifying it.
+  - Enforce allowed values for `currentAgentId` and `status`.
+- API is stateless: it does not keep in-memory user/session state between calls; all state lives in Firestore.
 
-- Writes to `users/{userId}`:
-  - Only via authenticated server logic (for profile updates, wallet binding, etc.).
-  - Fields use standardized names: `walletAddress`, `status`, `createdAt`, `updatedAt`.
-- Writes to `sessions/{sessionId}`:
-  - Only via routing/API layer after validation.
-  - Must always include `userId` (owner), `currentAgentId`, `status`, and timestamp updates.
-- Firestore Security Rules (to be implemented) ensure:
-  - A user can only read and modify their own `users/{userId}` and `sessions/{sessionId}` docs.
-  - No client can write arbitrary documents or fields outside the standardized schema.
+### Tier 3 – Persistence & Settlement (Firestore)
+
+- All writes go through the API; there are **no** client-side direct writes to `users` or `sessions`.
+- Every document write (create/update) must update both `createdAt` (on create) and `updatedAt` (on every change) to keep audit metadata synchronized.
+- Firestore Security Rules (to be implemented) will:
+  - Block unauthenticated access.
+  - Restrict reads/writes so a user can only access documents where `userId` matches their identity.
+  - Prepare for future integration with immutable settlement hooks (e.g., Base L2).
