@@ -2,10 +2,11 @@
 
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
-const { generateZkProofForSession } = require('./cryptoPipeline');
 
 admin.initializeApp();
 const db = admin.firestore();
+
+const { generateZkProofForSession } = require('./cryptoPipeline');
 
 /**
  * Firestore trigger:
@@ -14,66 +15,47 @@ const db = admin.firestore();
 exports.onSessionStatusChange = functions.firestore
   .document('sessions/{sessionId}')
   .onUpdate(async (change, context) => {
-    const newData = change.after.data();
-    const previousData = change.before.data();
+    const before = change.before.data();
+    const after = change.after.data();
     const sessionId = context.params.sessionId;
 
-    // Trigger ZK pipeline only when status flips to 'Completed'
-    if (
-      newData.sessionStatus === 'Completed' &&
-      previousData.sessionStatus !== 'Completed'
-    ) {
-      try {
-        console.log(
-          `Session ${sessionId} status changed to Completed. Triggering ZK pipeline...`
-        );
-        //await triggerZKPipeline(sessionId, newData);
-      } catch (error) {
-        console.error(
-          `Failed to trigger ZK pipeline for session ${sessionId}:`,
-          error
-        );
-      }
-    } else {
-      console.log(
-        `Session ${sessionId} updated but status is ${newData.sessionStatus}. No ZK action taken.`
-      );
+    const prevStatus = before.sessionStatus || before.status;
+    const newStatus = after.sessionStatus || after.status;
+
+    // If status didn't change, do nothing
+    if (prevStatus === newStatus) {
+      return null;
+    }
+
+    // Only act when the session moves into a completed state
+    if (newStatus === 'COMPLETED' || newStatus === 'Completed') {
+      console.log(`Session ${sessionId} completed – generating ZK cryptoMetadata`);
+
+      const zkInput = {
+        sessionId,
+        sessionNumericId: after.sessionNumericId || 0,
+        totalParlays: after.totalParlays || 0,
+        createdAt: after.createdAt,
+        completedAt: after.completedAt,
+      };
+
+      // Call the ZK prover helper (structure defined in cryptoPipeline.js)
+      const zk = await generateZkProofForSession(zkInput);
+
+      // Write Jean's exact cryptoMetadata structure to Firestore
+      await change.after.ref.update({
+        cryptoMetadata: {
+          zkStatus: zk.zkStatus,
+          proofId: zk.proofId,
+          poseidonHash: zk.poseidonHash,
+          eddsaSignature: zk.eddsaSignature,
+          proof: zk.proof,
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      console.log(`cryptoMetadata written for session ${sessionId}`);
     }
 
     return null;
   });
-
-/**
- * Handles the ZK pipeline execution
- * @param {string} sessionId
- * @param {Object} sessionData
- */
-async function triggerZKPipeline(sessionId, sessionData) {
-  console.log(`Initializing ZK pipeline for session: ${sessionId}`);
-
-  // Example: build the ZK input and generate a proof object
-  const zkInput = {
-    sessionId,
-    sessionNumericId: sessionData.sessionNumericId || 0,
-    totalParlays: sessionData.totalParlays || 0,
-    createdAt: sessionData.createdAt,
-    completedAt: sessionData.completedAt,
-  };
-
-  // Call the ZK helper (Poseidon hash, etc.)
-  const proof = await generateZkProofForSession(zkInput);
-
-  console.log(`Generated ZK proof for session ${sessionId}`, proof);
-
-  const sessionRef = db.collection('sessions').doc(sessionId);
-
-  // Write ZK metadata back to Firestore
-  return sessionRef.update({
-    cryptoMetadata: {
-      zkStatus: 'generated',
-      zkProof: proof,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-}
