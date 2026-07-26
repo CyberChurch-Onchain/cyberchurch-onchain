@@ -1,5 +1,8 @@
+// functions/index.js
+
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
+const { generateZkProofForSession } = require('./cryptoPipeline');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -24,43 +27,53 @@ exports.onSessionStatusChange = functions.firestore
         console.log(
           `Session ${sessionId} status changed to Completed. Triggering ZK pipeline...`
         );
-        return await triggerZKPipeline(sessionId, newData);
+        //await triggerZKPipeline(sessionId, newData);
       } catch (error) {
         console.error(
           `Failed to trigger ZK pipeline for session ${sessionId}:`,
           error
         );
-        return null;
       }
+    } else {
+      console.log(
+        `Session ${sessionId} updated but status is ${newData.sessionStatus}. No ZK action taken.`
+      );
     }
 
-    console.log(
-      `Session ${sessionId} updated but status is ${newData.sessionStatus}. No ZK action taken.`
-    );
     return null;
   });
 
 /**
- * Handles the ZK-SNARK/STARK pipeline execution
- * @param {string} sessionId 
- * @param {Object} sessionData 
+ * Handles the ZK pipeline execution
+ * @param {string} sessionId
+ * @param {Object} sessionData
  */
 async function triggerZKPipeline(sessionId, sessionData) {
   console.log(`Initializing ZK pipeline for session: ${sessionId}`);
 
-  // TODO: Import cryptographic modules once fully compiled
-  // const proofArtifacts = await generateZKProof(sessionData);
-  // const signature = await signSettlement(proofArtifacts);
+  // Example: build the ZK input and generate a proof object
+  const zkInput = {
+    sessionId,
+    sessionNumericId: sessionData.sessionNumericId || 0,
+    totalParlays: sessionData.totalParlays || 0,
+    createdAt: sessionData.createdAt,
+    completedAt: sessionData.completedAt,
+  };
 
-  // Example placeholder: update timestamps and keep cryptoMetadata ready
+  // Call the ZK helper (Poseidon hash, etc.)
+  const proof = await generateZkProofForSession(zkInput);
+
+  console.log(`Generated ZK proof for session ${sessionId}`, proof);
+
   const sessionRef = db.collection('sessions').doc(sessionId);
 
+  // Write ZK metadata back to Firestore
   return sessionRef.update({
-    // cryptoMetadata: {
-    //   poseidonHash: poseidonResult,
-    //   eddsaSignature: signature,
-    //   proof: proofArtifacts,
-    // },
-    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    cryptoMetadata: {
+      zkStatus: 'generated',
+      zkProof: proof,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 }
