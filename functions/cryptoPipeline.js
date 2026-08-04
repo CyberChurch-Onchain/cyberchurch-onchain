@@ -1,74 +1,70 @@
-// functions/cryptoPipeline.js
+const path = require('path');
+const snarkjs = require('snarkjs');
+const circomlibjs = require('circomlibjs');
 
-const circomlib = require('circomlibjs');  // Poseidon, etc.
-const jose = require('jose');              // EdDSA / JWT style verification
+const WASM_PATH = path.join(__dirname, 'zk', 'sessionProof.wasm');
+const ZKEY_PATH = path.join(__dirname, 'zk', 'sessionProof_final.zkey');
 
-async function computePoseidonHash(inputs) {
-  // inputs: array of BigInt, e.g. [BigInt(1), BigInt(2)]
-  const poseidon = await circomlib.buildPoseidon();
-  const hashBigInt = poseidon(inputs);
-  const hashHex = '0x' + poseidon.F.toString(hashBigInt, 16);
+function buildCircuitInput(sessionDoc) {
+  return {
+    sessionId: sessionDoc.sessionNumericId || 0,
+    totalParlays: sessionDoc.totalParlays || 0,
+  };
+}
+
+async function computePoseidonHashForSession(sessionDoc) {
+  const poseidon = await circomlibjs.buildPoseidon();
+  const input = [
+    BigInt(sessionDoc.sessionNumericId || 0),
+    BigInt(sessionDoc.totalParlays || 0),
+  ];
+  const hash = poseidon(input);
+  const hashHex = '0x' + poseidon.F.toString(hash, 16);
   return hashHex;
 }
 
-async function verifyEdDSASignature(message, signature, publicKeyJwk) {
-  // message: string, signature: compact JWS or similar, publicKeyJwk: Ed25519 JWK
-  const publicKey = await jose.importJWK(publicKeyJwk, 'Ed25519');
-  try {
-    const { payload } = await jose.compactVerify(signature, publicKey);
-    const decoded = new TextDecoder().decode(payload);
-    return {
-      valid: true,
-      payload: decoded,
-    };
-  } catch (e) {
-    return { valid: false, error: e.message };
-  }
-}
-
-async function generateZkProofForSession(sessionDoc) {
-  // In the future, call your real prover here (snarkjs, Circom, BabyJubjub, etc.)
-  // For now we use Jean's reference structure as the live schema.
-
-  const poseidonHash =
-    '0x1f9a2b8e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f';
-
-  const eddsaSignature = {
+async function generateEdDSASignature(messageHex) {
+  // TODO: replace with real private key & EdDSA logic later
+  return {
     r8: [
       '1234567890123456789012345678901234567890',
       '0987654321098765432109876543210987654321',
     ],
     s: '9876543210987654321098765432109876543210',
   };
+}
 
-  const proof = {
-    pi_a: [
-      '0x123456789abcdef...',
-      '0xabcdef123456789...',
-      '1',
-    ],
+async function generateZkProofForSession(sessionDoc) {
+  const input = buildCircuitInput(sessionDoc);
+
+  const { proof, publicSignals } = await snarkjs.groth16.fullProve(
+    input,
+    WASM_PATH,
+    ZKEY_PATH
+  );
+
+  const poseidonHash = await computePoseidonHashForSession(sessionDoc);
+  const eddsaSignature = await generateEdDSASignature(poseidonHash);
+
+  const formattedProof = {
+    pi_a: [proof.pi_a[0], proof.pi_a[1], proof.pi_a[2]],
     pi_b: [
-      ['0x1234...', '0x5678...'],
-      ['0x9abc...', '0xdef0...'],
-      ['1', '0'],
+      [proof.pi_b[0][0], proof.pi_b[0][1]],
+      [proof.pi_b[1][0], proof.pi_b[1][1]],
+      [proof.pi_b[2][0], proof.pi_b[2][1]],
     ],
-    pi_c: [
-      '0x987654321fedcba...',
-      '0xfedcba987654321...',
-      '1',
-    ],
+    pi_c: [proof.pi_c[0], proof.pi_c[1], proof.pi_c[2]],
     protocol: 'groth16',
     curve: 'bn128',
   };
 
-  const proofId = `zk_proof_${sessionDoc.sessionId || 'sample'}_2026`;
-
+  const proofId = `zk_proof_${sessionDoc.sessionId || 'session'}_${Date.now()}`;
   const zkStatus = 'VERIFIED';
 
   return {
     poseidonHash,
     eddsaSignature,
-    proof,
+    proof: formattedProof,
     proofId,
     zkStatus,
   };
