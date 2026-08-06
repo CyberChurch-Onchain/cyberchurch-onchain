@@ -99,7 +99,7 @@ exports.onSessionStatusChange = functions.firestore
 
         // Very simple error payload to avoid nested entity issues
         const safeErrorCrypto = sanitizePayload({
-          zkStatus: 'ERROR',
+          zkStatus: 'FAILED',
           proofId: `zk_error_${sessionId}_${Date.now()}`,
           errorMessage: String(err.message || err),
         });
