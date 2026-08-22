@@ -1,0 +1,529 @@
+'use strict';
+
+const express = require('express');
+const cors = require('cors');
+
+const { initializeApp } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+
+const {
+  SecretManagerServiceClient,
+} = require('@google-cloud/secret-manager');
+
+const {
+  jwtVerify,
+  importSPKI,
+} = require('jose');
+
+initializeApp();
+
+const db = getFirestore();
+const secretsClient = new SecretManagerServiceClient();
+
+const app = express();
+
+const port = Number(process.env.PORT || 8080);
+
+const projectId =
+  process.env.GOOGLE_CLOUD_PROJECT ||
+  process.env.GCLOUD_PROJECT ||
+  'bold-ally-485107-b8';
+
+const jwtSecretName =
+  process.env.JWT_SECRET_NAME ||
+  'jwt-rs256-public-key';
+
+const jwtIssuer =
+  process.env.JWT_ISSUER ||
+  'https://auth.cyberchurchonchain.org/';
+
+const jwtAudience =
+  process.env.JWT_AUDIENCE ||
+  'cyberchurch-api';
+
+const allowedOrigins = [
+  'https://staging.cyberchurchonchain.org',
+  'http://localhost:3000',
+];
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('CORS origin not allowed'));
+  },
+
+  methods: ['GET', 'POST', 'OPTIONS'],
+
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+  ],
+
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+app.use(express.json());
+
+let publicKeyPromise = null;
+
+async function loadJwtPublicKey() {
+  if (!publicKeyPromise) {
+    const secretVersionName =
+      `projects/${projectId}/secrets/${jwtSecretName}/versions/latest`;
+
+    publicKeyPromise = secretsClient
+      .accessSecretVersion({
+        name: secretVersionName,
+      })
+      .then(async ([response]) => {
+        if (
+          !response ||
+          !response.payload ||
+          !response.payload.data
+        ) {
+          throw new Error(
+            'Secret Manager returned an empty JWT public key'
+          );
+        }
+
+        const publicKeyPem =
+          response.payload.data.toString('utf8').trim();
+
+        if (!publicKeyPem.includes('BEGIN PUBLIC KEY')) {
+          throw new Error(
+            'JWT secret is not a valid PEM public key'
+          );
+        }
+
+        return importSPKI(publicKeyPem, 'RS256');
+      })
+      .catch((error) => {
+        publicKeyPromise = null;
+        throw error;
+      });
+  }
+
+  return publicKeyPromise;
+}
+
+async function requireJwt(req, res, next) {
+  try {
+    const authorizationHeader =
+      req.get('authorization') || '';
+
+    if (!authorizationHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Missing Bearer token',
+      });
+    }
+
+    const token =
+      authorizationHeader
+        .slice('Bearer '.length)
+        .trim();
+
+    if (!token) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Empty Bearer token',
+      });
+    }
+
+    const publicKey = await loadJwtPublicKey();
+
+    const verificationResult = await jwtVerify(
+      token,
+      publicKey,
+      {
+        algorithms: ['RS256'],
+        issuer: jwtIssuer,
+        audience: jwtAudience,
+      }
+    );
+
+    req.user = verificationResult.payload;
+
+    return next();
+  } catch (error) {
+    console.error(
+      'JWT verification failed:',
+      error.message
+    );
+
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Invalid or expired token',
+    });
+  }
+}
+
+function getRequestToken(req, allowQueryToken = false) {
+  const authorizationHeader =
+    req.get('authorization') || '';
+
+  if (authorizationHeader.startsWith('Bearer ')) {
+    const headerToken =
+      authorizationHeader
+        .slice('Bearer '.length)
+        .trim();
+
+    if (headerToken) {
+      return headerToken;
+    }
+  }
+
+  if (
+    allowQueryToken &&
+    typeof req.query.token === 'string'
+  ) {
+    const queryToken = req.query.token.trim();
+
+    if (queryToken) {
+      return queryToken;
+    }
+  }
+
+  return null;
+}
+
+function getRequestToken(req, allowQueryToken = false) {
+  const authorizationHeader =
+    req.get('authorization') || '';
+
+  if (authorizationHeader.startsWith('Bearer ')) {
+    const headerToken =
+      authorizationHeader
+        .slice('Bearer '.length)
+        .trim();
+
+    if (headerToken) {
+      return headerToken;
+    }
+  }
+
+  if (
+    allowQueryToken &&
+    typeof req.query.token === 'string'
+  ) {
+    const queryToken = req.query.token.trim();
+
+    if (queryToken) {
+      return queryToken;
+    }
+  }
+
+  return null;
+}
+
+async function requireStreamJwt(req, res, next) {
+  try {
+    const token = getRequestToken(req, true);
+
+    if (!token) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Missing stream token',
+      });
+    }
+
+    const publicKey = await loadJwtPublicKey();
+
+    const verificationResult = await jwtVerify(
+      token,
+      publicKey,
+      {
+        algorithms: ['RS256'],
+        issuer: jwtIssuer,
+        audience: jwtAudience,
+      }
+    );
+
+    req.user = verificationResult.payload;
+
+    return next();
+  } catch (error) {
+    console.error(
+      'SSE JWT verification failed:',
+      error.message
+    );
+
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Invalid or expired stream token',
+    });
+  }
+}
+
+app.get('/health', (req, res) => {
+
+
+app.get('/health', (req, res) => {
+  return res.status(200).json({
+    status: 'ok',
+    service: 'cyberchurch-api',
+  });
+});
+
+app.get('/api/v1/health', (req, res) => {
+  return res.status(200).json({
+    status: 'ok',
+    service: 'cyberchurch-api',
+    version: 'v1',
+  });
+});
+
+app.get(
+  '/api/v1/sessions/:sessionId',
+  requireJwt,
+  async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+
+      const sessionSnapshot = await db
+        .collection('sessions')
+        .doc(sessionId)
+        .get();
+
+      if (!sessionSnapshot.exists) {
+        return res.status(404).json({
+          error: 'Not found',
+          message: 'Session not found',
+        });
+      }
+
+      return res.status(200).json({
+        id: sessionSnapshot.id,
+        ...sessionSnapshot.data(),
+      });
+    } catch (error) {
+      console.error(
+        'Session endpoint failed:',
+        error
+      );
+
+      return res.status(500).json({
+        error: 'Internal server error',
+      });
+    }
+  }
+);
+
+app.post(
+  '/api/v1/telemetry',
+  requireJwt,
+  async (req, res) => {
+    try {
+      const telemetryEvent = {
+        ...(req.body || {}),
+        userId: req.user.sub || null,
+        receivedAt: new Date().toISOString(),
+      };
+
+      await db
+        .collection('telemetry')
+        .add(telemetryEvent);
+
+      return res.status(202).json({
+        accepted: true,
+      });
+    } catch (error) {
+      console.error(
+        'Telemetry endpoint failed:',
+        error
+      );
+
+      return res.status(500).json({
+        error: 'Internal server error',
+      });
+    }
+  }
+);
+
+app.get(
+  '/api/v1/sessions/:sessionId/events',
+  requireJwt,
+  (req, res) => {
+    const { sessionId } = req.params;
+
+    res.status(200);
+
+    res.setHeader(
+      'Content-Type',
+      'text/event-stream'
+    );
+
+    res.setHeader(
+      'Cache-Control',
+      'no-cache'
+    );
+
+    res.setHeader(
+      'Connection',
+      'keep-alive'
+    );
+
+    res.setHeader(
+      'X-Accel-Buffering',
+      'no'
+    );
+
+    res.flushHeaders();
+
+    res.write(
+      `event: connected\n` +
+      `data: ${JSON.stringify({
+        sessionId,
+        connected: true,
+      })}\n\n`
+    );
+
+    const heartbeat = setInterval(() => {
+      res.write(
+        `event: heartbeat\n` +
+        `data: ${JSON.stringify({
+          timestamp: new Date().toISOString(),
+        })}\n\n`
+      );
+    }, 30000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      res.end();
+    });
+  }
+);
+
+app.use((error, req, res, next) => {
+  if (error.message === 'CORS origin not allowed') {
+    return res.status(403).json({
+      error: 'CORS origin not allowed',
+    });
+  }
+
+  console.error(
+    'Unhandled application error:',
+    error
+  );
+
+  return res.status(500).json({
+    error: 'Internal server error',
+  });
+});
+
+function createMockCryptoMetadata(sessionId) {
+  return {
+    zkStatus: 'MOCKED',
+    proofId: `mock-proof-${sessionId}-${Date.now()}`,
+    poseidonHash: '0xmock-poseidon-hash',
+    eddsaSignature: {
+      r8: ['0x0', '0x0'],
+      s: '0x0',
+    },
+    proof: {
+      pi_a: ['0x0', '0x0', '1'],
+      pi_b: [
+        ['0x0', '0x0'],
+        ['0x0', '0x0'],
+        ['1', '0'],
+      ],
+      pi_c: ['0x0', '0x0', '1'],
+      protocol: 'groth16',
+      curve: 'bn128',
+    },
+    isMock: true,
+    artifactStatus: 'NOT_UPLOADED',
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+app.get(
+  '/api/v1/sessions/:sessionId/proof',
+  requireJwt,
+  async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+
+      return res.status(200).json({
+        sessionId,
+        cryptoMetadata: createMockCryptoMetadata(sessionId),
+      });
+    } catch (error) {
+      console.error('Proof endpoint failed:', error);
+
+      return res.status(500).json({
+        error: 'Internal server error',
+      });
+    }
+  }
+);
+
+app.get(
+  '/api/v1/sessions/:sessionId/stream',
+  requireStreamJwt,
+  (req, res) => {
+    const { sessionId } = req.params;
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders();
+    }
+
+    res.write(
+      `event: connected\ndata: ${JSON.stringify({
+        sessionId,
+        receivedAt: new Date().toISOString(),
+      })}\n\n`
+    );
+
+    const heartbeat = setInterval(() => {
+      res.write(
+        `event: heartbeat\ndata: ${JSON.stringify({
+          receivedAt: new Date().toISOString(),
+        })}\n\n`
+      );
+    }, 15000);
+
+    const closeStream = () => {
+      clearInterval(heartbeat);
+    };
+
+    req.on('close', closeStream);
+    res.on('close', closeStream);
+  }
+);
+
+app.listen(
+  port,
+  '0.0.0.0',
+  () => {
+    console.log(
+      `cyberchurch-api listening on port ${port}`
+    );
+
+    console.log(
+      `Google Cloud project: ${projectId}`
+    );
+
+    console.log(
+      `JWT secret: ${jwtSecretName}`
+    );
+
+    console.log(
+      `JWT issuer: ${jwtIssuer}`
+    );
+
+    console.log(
+      `JWT audience: ${jwtAudience}`
+    );
+  });

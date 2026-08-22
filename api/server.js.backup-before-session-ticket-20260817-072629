@@ -1,0 +1,228 @@
+const express = require('express');
+const cors = require('cors');
+const { initializeApp } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
+const { jwtVerify, importSPKI } = require('jose');
+
+initializeApp();
+const db = getFirestore();
+const secretsClient = new SecretManagerServiceClient();
+const app = express();
+const port = Number(process.env.PORT || 8080);
+
+const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || 'bold-ally-485107-b8';
+const jwtSecretName = process.env.JWT_SECRET_NAME || 'jwt-rs256-public-key';
+const jwtIssuer = process.env.JWT_ISSUER || 'https://auth.cyberchurchonchain.org/';
+const jwtAudience = process.env.JWT_AUDIENCE || 'cyberchurch-api';
+const allowedOrigins = ['https://staging.cyberchurchonchain.org', 'http://localhost:3000'];
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS origin not allowed'));
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+app.use(express.json());
+
+let publicKeyPromise = null;
+
+async function loadJwtPublicKey() {
+  if (!publicKeyPromise) {
+    const name = `projects/${projectId}/secrets/${jwtSecretName}/versions/latest`;
+    publicKeyPromise = secretsClient.accessSecretVersion({ name })
+      .then(async ([response]) => {
+        const data = response?.payload?.data;
+        if (!data) throw new Error('Secret Manager returned an empty JWT public key');
+        const pem = data.toString('utf8').trim();
+        if (!pem.includes('BEGIN PUBLIC KEY')) throw new Error('JWT secret is not a valid PEM public key');
+        return importSPKI(pem, 'RS256');
+      })
+      .catch((error) => {
+        publicKeyPromise = null;
+        throw error;
+      });
+  }
+  return publicKeyPromise;
+}
+
+function getRequestToken(req, allowQueryToken = false) {
+  const header = req.get('authorization') || '';
+  if (header.startsWith('Bearer ')) {
+    const token = header.slice(7).trim();
+    if (token) return token;
+  }
+  if (allowQueryToken && typeof req.query.token === 'string') {
+    const token = req.query.token.trim();
+    if (token) return token;
+  }
+  return null;
+}
+
+async function verifyRequestToken(req, res, next, allowQueryToken = false) {
+  try {
+    const token = getRequestToken(req, allowQueryToken);
+    if (!token) return res.status(401).json({ error: 'Unauthorized', message: 'Missing token' });
+    const result = await jwtVerify(token, await loadJwtPublicKey(), {
+      algorithms: ['RS256'],
+      issuer: jwtIssuer,
+      audience: jwtAudience,
+    });
+    req.user = result.payload;
+    return next();
+  } catch (error) {
+    console.error('JWT verification failed:', error.message);
+    return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired token' });
+  }
+}
+
+function requireJwt(req, res, next) {
+  return verifyRequestToken(req, res, next, false);
+}
+
+function requireStreamJwt(req, res, next) {
+  return verifyRequestToken(req, res, next, true);
+}
+
+app.get('/health', (req, res) => {
+  return res.status(200).json({ status: 'ok', service: 'cyberchurch-api' });
+});
+
+app.get('/api/v1/health', (req, res) => {
+  return res.status(200).json({ status: 'ok', service: 'cyberchurch-api', version: 'v1' });
+});
+
+app.get('/api/v1/sessions/:sessionId', requireJwt, async (req, res) => {
+  try {
+    const snapshot = await db.collection('sessions').doc(req.params.sessionId).get();
+    if (!snapshot.exists) {
+      return res.status(404).json({ error: 'Not found', message: 'Session not found' });
+    }
+    return res.status(200).json({ id: snapshot.id, ...snapshot.data() });
+  } catch (error) {
+    console.error('Session endpoint failed:', error.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+const telemetryRequired = {
+  user_checkin: ['metric', 'value', 'scale'],
+  zone_enter: ['zoneId', 'zoneLabel', 'x', 'y', 'z'],
+  zone_exit: ['zoneId', 'zoneLabel', 'x', 'y', 'z', 'dwellSeconds'],
+};
+
+function validateTelemetry(body) {
+  if (!body || typeof body !== 'object') return 'Request body must be an object';
+  if (!body.eventType || !body.timestamp || !body.payload) return 'eventType, timestamp and payload are required';
+  if (!telemetryRequired[body.eventType]) return `Unsupported eventType: ${body.eventType}`;
+  if (typeof body.timestamp !== 'string' || Number.isNaN(Date.parse(body.timestamp))) return 'timestamp must be a valid ISO date';
+
+  for (const field of telemetryRequired[body.eventType]) {
+    if (body.payload[field] === undefined || body.payload[field] === null) return `payload.${field} is required`;
+  }
+
+  if (body.eventType === 'user_checkin' && (typeof body.payload.value !== 'number' || body.payload.value < 0 || body.payload.value > 1)) {
+    return 'payload.value must be between 0 and 1';
+  }
+
+  if (body.eventType === 'zone_exit' && (typeof body.payload.dwellSeconds !== 'number' || body.payload.dwellSeconds < 0)) {
+    return 'payload.dwellSeconds must be non-negative';
+  }
+
+  return null;
+}
+
+app.post('/api/v1/telemetry', requireJwt, async (req, res) => {
+  try {
+    const validationError = validateTelemetry(req.body);
+    if (validationError) {
+      return res.status(400).json({ code: 'VALIDATION_ERROR', message: validationError });
+    }
+
+    const telemetryEvent = {
+      ...req.body,
+      userId: req.user?.sub || null,
+      receivedAt: new Date().toISOString(),
+    };
+
+    const ref = await db.collection('telemetry').add(telemetryEvent);
+    return res.status(202).json({ accepted: true, eventId: ref.id });
+  } catch (error) {
+    console.error('Telemetry endpoint failed:', error.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+function createMockCryptoMetadata(sessionId) {
+  return {
+    zkStatus: 'MOCKED',
+    proofId: `mock-proof-${sessionId}-${Date.now()}`,
+    poseidonHash: '0xmock-poseidon-hash',
+    eddsaSignature: { r8: ['0x0', '0x0'], s: '0x0' },
+    proof: {
+      pi_a: ['0x0', '0x0', '1'],
+      pi_b: [['0x0', '0x0'], ['0x0', '0x0'], ['1', '0']],
+      pi_c: ['0x0', '0x0', '1'],
+      protocol: 'groth16',
+      curve: 'bn128',
+    },
+    isMock: true,
+    artifactStatus: 'NOT_UPLOADED',
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+app.get('/api/v1/sessions/:sessionId/proof', requireJwt, (req, res) => {
+  return res.status(200).json({
+    sessionId: req.params.sessionId,
+    cryptoMetadata: createMockCryptoMetadata(req.params.sessionId),
+  });
+});
+
+function sendSse(req, res, sessionId) {
+  res.status(200).set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  res.write(`event: connected\\ndata: ${JSON.stringify({ sessionId, connected: true })}\\n\\n`);
+
+  const heartbeat = setInterval(() => {
+    res.write(`event: heartbeat\\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\\n\\n`);
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    res.end();
+  });
+}
+
+app.get('/api/v1/sessions/:sessionId/events', requireStreamJwt, (req, res) => {
+  return sendSse(req, res, req.params.sessionId);
+});
+
+app.get('/api/v1/sessions/:sessionId/stream', requireStreamJwt, (req, res) => {
+  return sendSse(req, res, req.params.sessionId);
+});
+
+app.use((error, req, res, next) => {
+  if (error.message === 'CORS origin not allowed') {
+    return res.status(403).json({ error: 'CORS origin not allowed' });
+  }
+  console.error('Unhandled application error:', error.message);
+  return res.status(500).json({ error: 'Internal server error' });
+});
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`cyberchurch-api listening on port ${port}`);
+});
