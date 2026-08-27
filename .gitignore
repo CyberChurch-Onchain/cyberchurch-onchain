@@ -67,3 +67,7 @@ node_modules/
 # dataconnect generated files
 .dataconnect
 config.bat
+
+# Local Python virtual environment
+venv/
+.venv/
