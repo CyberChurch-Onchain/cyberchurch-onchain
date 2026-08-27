@@ -443,6 +443,12 @@ app.post('/api/v1/telemetry',
     message: validationError,
   });
 }
+  const telemetryEvent = {
+    ...req.body,
+    authenticatedUserId: req.user?.sub || null,
+    receivedAt: new Date().toISOString(),
+  };
+
   const ref = await db
    .collection('telemetry')
    .add(telemetryEvent);
