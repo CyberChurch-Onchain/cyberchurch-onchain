@@ -1,22 +1,21 @@
 steps:
-  # Step 1: Log the start of the build environment
-  - name: 'gcr.io/cloud-builders/git'
-    args: ['version']
+  # Step 1: Install Node.js dependencies
+  - name: 'node:20-slim'
+    entrypoint: 'npm'
+    args: ['install', '--production']
 
-  # Step 2: Run your automated build step or asset compilation
-  # (We will swap this runner image out depending on your preferred Unity version/license parameters)
+  # Step 2: Build and deploy to Cloud Run
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        echo "Starting Unity build pipeline for CyberChurch..."
-        # Add your specific Unity compilation paths or deployment triggers here
-
-  # Step 3: Deploy WebGL build artifacts to Firebase Hosting
-  - name: 'us-docker.pkg.dev/firebase-cli/us/firebase'
-    args: ['deploy', '--project=bold-ally-485107-b8', '--only=hosting']
-
+        gcloud run deploy staging-api \
+          --source . \
+          --region us-central1 \
+          --project bold-ally-485107-b8 \
+          --allow-unauthenticated \
+          --quiet
 
 options:
   logging: CLOUD_LOGGING_ONLY
