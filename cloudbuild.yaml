@@ -1,17 +1,24 @@
 steps:
-  # Step 1: Install Node.js dependencies
-  - name: 'node:20-slim'
-    entrypoint: 'npm'
-    args: ['install', '--production']
+  # Step 1: Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/bold-ally-485107-b8/staging-api:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/bold-ally-485107-b8/staging-api:latest'
+      - '.'
 
-  # Step 2: Build and deploy to Cloud Run
+  # Step 2: Push the image (implicit in Cloud Build)
+
+  # Step 3: Deploy to Cloud Run
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         gcloud run deploy staging-api \
-          --source . \
+          --image gcr.io/bold-ally-485107-b8/staging-api:$SHORT_SHA \
           --region us-central1 \
           --project bold-ally-485107-b8 \
           --allow-unauthenticated \
