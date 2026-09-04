@@ -4,14 +4,14 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/bold-ally-485107-b8/staging-api:$BUILD_ID'
+      - 'us-central1-docker.pkg.dev/bold-ally-485107-b8/staging-api/staging-api:$BUILD_ID'
       - '.'
 
-  # Step 1: Push the container image to Container Registry
+  # Step 1: Push the container image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/bold-ally-485107-b8/staging-api:$BUILD_ID'
+      - 'us-central1-docker.pkg.dev/bold-ally-485107-b8/staging-api/staging-api:$BUILD_ID'
 
   # Step 2: Deploy the container image to Cloud Run
   - name: 'gcr.io/cloud-builders/gcloud'
@@ -20,14 +20,14 @@ steps:
       - 'deploy'
       - 'staging-api'
       - '--image'
-      - 'gcr.io/bold-ally-485107-b8/staging-api:$BUILD_ID'
+      - 'us-central1-docker.pkg.dev/bold-ally-485107-b8/staging-api/staging-api:$BUILD_ID'
       - '--region=us-central1'
       - '--project=bold-ally-485107-b8'
       - '--allow-unauthenticated'
       - '--quiet'
 
 images:
-  - 'gcr.io/bold-ally-485107-b8/staging-api:$BUILD_ID'
+  - 'us-central1-docker.pkg.dev/bold-ally-485107-b8/staging-api/staging-api:$BUILD_ID'
 
 options:
   logging: CLOUD_LOGGING_ONLY
