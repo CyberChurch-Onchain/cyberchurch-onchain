@@ -1,5 +1,5 @@
 steps:
-  # Step 1: Build the container image
+  # Build the container image
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -9,20 +9,20 @@ steps:
       - 'gcr.io/bold-ally-485107-b8/staging-api:latest'
       - '.'
 
-  # Step 2: Push the image (implicit in Cloud Build)
-
-  # Step 3: Deploy to Cloud Run
+  # Deploy to Cloud Run
   - name: 'gcr.io/cloud-builders/gcloud'
-    entrypoint: 'bash'
     args:
-      - '-c'
-      - |
-        gcloud run deploy staging-api \
-          --image gcr.io/bold-ally-485107-b8/staging-api:$SHORT_SHA \
-          --region us-central1 \
-          --project bold-ally-485107-b8 \
-          --allow-unauthenticated \
-          --quiet
+      - 'run'
+      - 'deploy'
+      - 'staging-api'
+      - '--image'
+      - 'gcr.io/bold-ally-485107-b8/staging-api:$SHORT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--project'
+      - 'bold-ally-485107-b8'
+      - '--allow-unauthenticated'
+      - '--quiet'
 
 options:
   logging: CLOUD_LOGGING_ONLY
