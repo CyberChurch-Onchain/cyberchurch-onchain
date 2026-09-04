@@ -4,7 +4,7 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/bold-ally-485107-b8/staging-api:$SHORT_SHA'
+      - 'gcr.io/bold-ally-485107-b8/staging-api:staging'
       - '-t'
       - 'gcr.io/bold-ally-485107-b8/staging-api:latest'
       - '.'
@@ -16,7 +16,7 @@ steps:
       - 'deploy'
       - 'staging-api'
       - '--image'
-      - 'gcr.io/bold-ally-485107-b8/staging-api:$SHORT_SHA'
+      - 'gcr.io/bold-ally-485107-b8/staging-api:staging'
       - '--region'
       - 'us-central1'
       - '--project'
