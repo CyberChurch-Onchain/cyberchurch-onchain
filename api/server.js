@@ -35,6 +35,7 @@ const jwtAudience =
 
 const allowedOrigins = [
   'https://staging.cyberchurchonchain.org',
+  'https://bold-ally-485107-b8.web.app',
   'http://localhost:3000',
 ];
 
